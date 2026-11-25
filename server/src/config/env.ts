@@ -23,10 +23,16 @@ const __dirname = path.dirname(__filename);
 // Load server/.env relative to server root regardless of current working directory
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
+const supabaseUrl = (
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  ''
+).trim();
 const supabaseAnonKey = (
   process.env.SUPABASE_ANON_KEY ||
   process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   ''
 ).trim();
 const supabaseServiceRoleKey = (
@@ -88,6 +94,20 @@ const allowedOrigins = Array.from(
   ])
 );
 
+const smtpHost = (process.env.SMTP_HOST || '').trim();
+const smtpPort = Number(process.env.SMTP_PORT || 587);
+const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
+const smtpUser = (process.env.SMTP_USER || '').trim();
+const rawSmtpPass = (process.env.SMTP_PASS || '').trim();
+const smtpPass = smtpHost.toLowerCase().includes('gmail')
+  ? rawSmtpPass.replace(/\s+/g, '')
+  : rawSmtpPass;
+const smtpFrom = (
+  process.env.SMTP_FROM || 'RailYatra Support <no-reply@railyatra.in>'
+)
+  .trim()
+  .replace(/^["']|["']$/g, '');
+
 export const env = {
   port: Number(process.env.PORT || 5000),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -109,17 +129,13 @@ export const env = {
   },
 
   smtp: {
-    host: (process.env.SMTP_HOST || '').trim(),
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    user: (process.env.SMTP_USER || '').trim(),
-    pass: (process.env.SMTP_PASS || '').trim(),
-    from: process.env.SMTP_FROM || 'RailYatra Support <no-reply@railyatra.in>',
-    configured: Boolean(
-      (process.env.SMTP_HOST || '').trim() &&
-        (process.env.SMTP_USER || '').trim() &&
-        (process.env.SMTP_PASS || '').trim()
-    ),
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    user: smtpUser,
+    pass: smtpPass,
+    from: smtpFrom,
+    configured: Boolean(smtpHost && smtpUser && smtpPass),
   },
 
   railcore: {

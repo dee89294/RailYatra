@@ -62,6 +62,14 @@ export function createApp() {
         smtpConfigured: env.smtp.configured,
         railcoreConfigured: env.railcore.configured,
         railwayApiConfigured: env.railwayApi.configured,
+        checks: {
+          supabaseUrl: Boolean(env.supabase.url),
+          supabaseAnonKey: Boolean(env.supabase.anonKey),
+          supabaseServiceRoleKey: Boolean(env.supabase.serviceRoleKey),
+          smtpHost: Boolean(env.smtp.host),
+          smtpUser: Boolean(env.smtp.user),
+          smtpPass: Boolean(env.smtp.pass),
+        },
         timestamp: new Date().toISOString(),
       },
     });
