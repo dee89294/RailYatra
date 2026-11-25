@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom print rules so the E-Ticket Modal prints cleanly onto A4/Letter paper */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-eticket,
+  #printable-eticket * {
+    visibility: visible;
+  }
+  #printable-eticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment variables (never commit secrets!)
+.env
+.env.local
+server/.env
+client/.env
+
+# Build outputs
+client/dist/
+server/dist/
+*.tsbuildinfo
+
+# Local SQLite database and generated logs
+server/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
