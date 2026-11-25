@@ -247,8 +247,8 @@ RailYatra uses **Nodemailer** (`server/src/services/emailService.ts`) for:
 - E-Ticket booking confirmation emails
 - Cancellation & refund notification emails
 
-When `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASS` are **not configured** in `server/.env`, RailYatra automatically switches to its **Dev Email Outbox**:
-- Verification and reset URLs are printed to the server terminal.
+When `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASS` are **not configured** in `server/.env`, RailYatra automatically switches to its **Dev Email Outbox** for local verification previews:
+- Verification URLs are printed to the server terminal (password reset links are never exposed in UI or HTTP responses).
 - The Signup and Login UIs also surface a direct one-click **Dev Outbox Verify Link** in development mode so you can verify accounts immediately.
 
 To enable real emails (e.g., Gmail App Password or Mailtrap):

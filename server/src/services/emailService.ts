@@ -21,7 +21,7 @@ import type { BookingDetails, DevEmailPreview } from '../types/index.js';
 const devOutbox: DevEmailPreview[] = [];
 
 function createTransporter() {
-  if (!env.smtp.configured) return null;
+  if (!env.smtp.configured || env.nodeEnv === 'test') return null;
   return nodemailer.createTransport({
     host: env.smtp.host,
     port: env.smtp.port,
@@ -39,25 +39,7 @@ async function dispatchEmail(input: {
   html: string;
   text: string;
   verificationUrl?: string;
-  resetUrl?: string;
 }): Promise<{ deliveredVia: 'smtp' | 'dev_outbox' }> {
-  const preview: DevEmailPreview = {
-    id: crypto.randomUUID(),
-    to: input.to,
-    subject: input.subject,
-    html: input.html,
-    text: input.text,
-    verificationUrl: input.verificationUrl,
-    resetUrl: input.resetUrl,
-    sentAt: new Date().toISOString(),
-  };
-
-  // Always retain recent previews in development for easy testing/debugging
-  if (env.nodeEnv !== 'production') {
-    devOutbox.unshift(preview);
-    if (devOutbox.length > 30) devOutbox.pop();
-  }
-
   const transporter = createTransporter();
   if (transporter) {
     await transporter.sendMail({
@@ -70,12 +52,25 @@ async function dispatchEmail(input: {
     return { deliveredVia: 'smtp' };
   }
 
+  // Only retain verification previews in non-production when SMTP is unconfigured;
+  // never store or expose password-reset links in HTTP-accessible outboxes.
+  if (env.nodeEnv !== 'production' && input.verificationUrl) {
+    const preview: DevEmailPreview = {
+      id: crypto.randomUUID(),
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+      verificationUrl: input.verificationUrl,
+      sentAt: new Date().toISOString(),
+    };
+    devOutbox.unshift(preview);
+    if (devOutbox.length > 30) devOutbox.pop();
+  }
+
   console.log(`\n[RailYatra Dev Email Outbox] To: ${input.to} | Subject: ${input.subject}`);
   if (input.verificationUrl) {
     console.log(` -> Verification Link: ${input.verificationUrl}`);
-  }
-  if (input.resetUrl) {
-    console.log(` -> Password Reset Link: ${input.resetUrl}`);
   }
   return { deliveredVia: 'dev_outbox' };
 }
@@ -144,7 +139,6 @@ export const emailService = {
       subject: 'Reset your RailYatra password',
       html,
       text: `Reset your RailYatra password: ${resetUrl}`,
-      resetUrl,
     });
   },
 

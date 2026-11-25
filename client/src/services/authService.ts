@@ -60,13 +60,10 @@ export const authService = {
   },
 
   forgotPassword(email: string) {
-    return apiRequest<{ message: string; resetPreviewUrl?: string }>(
-      '/auth/forgot-password',
-      {
-        method: 'POST',
-        body: JSON.stringify({ email }),
-      }
-    );
+    return apiRequest<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
   },
 
   resetPassword(token: string, newPassword: string) {

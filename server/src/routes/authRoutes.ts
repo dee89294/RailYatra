@@ -191,8 +191,8 @@ authRouter.delete(
 authRouter.get(
   '/dev-emails',
   asyncHandler(async (req, res) => {
-    if (env.nodeEnv === 'production') {
-      throw new AppError('Not available in production.', 404, 'NOT_FOUND');
+    if (env.nodeEnv === 'production' || env.smtp.configured) {
+      throw new AppError('Not available when SMTP is active or in production.', 404, 'NOT_FOUND');
     }
     const emailFilter = req.query.email ? String(req.query.email) : undefined;
     res.json({ success: true, data: emailService.getDevOutbox(emailFilter) });

@@ -29,7 +29,6 @@ export const ResetPasswordPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [previewUrl, setPreviewUrl] = useState<string | undefined>();
 
   const handleRequestReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +37,6 @@ export const ResetPasswordPage: React.FC = () => {
     try {
       const res = await authService.forgotPassword(email);
       setSuccessMsg(res.message);
-      setPreviewUrl(res.resetPreviewUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to send reset email.');
     } finally {
@@ -94,14 +92,6 @@ export const ResetPasswordPage: React.FC = () => {
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>{successMsg}</span>
                 </div>
-                {previewUrl && (
-                  <a
-                    href={previewUrl}
-                    className="block font-bold text-rail-primary underline break-all"
-                  >
-                    Dev Outbox Reset Link →
-                  </a>
-                )}
               </div>
               <Link
                 to="/login"

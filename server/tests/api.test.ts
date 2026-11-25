@@ -35,6 +35,10 @@ async function request(
 before(async () => {
   process.env.NODE_ENV = 'test';
   process.env.DATA_PROVIDER = 'local';
+  // Ensure automated integration tests never dispatch real emails via server/.env SMTP
+  process.env.SMTP_HOST = '';
+  process.env.SMTP_USER = '';
+  process.env.SMTP_PASS = '';
   const { createApp } = await import('../src/index.js');
   const app = createApp();
   await new Promise<void>((resolve) => {

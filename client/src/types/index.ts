@@ -263,6 +263,5 @@ export interface DevEmailPreview {
   html: string;
   text: string;
   verificationUrl?: string;
-  resetUrl?: string;
   sentAt: string;
 }

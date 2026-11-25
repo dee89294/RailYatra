@@ -485,22 +485,26 @@ export const authService = {
   },
 
   /**
-   * Initiates password reset flow by sending a 1-hour reset token via email.
+   * Initiates password reset flow by sending a 1-hour reset token strictly via email.
+   * Never exposes reset URLs in the HTTP response so only the inbox owner can reset.
    */
   async forgotPassword(emailInput: string): Promise<{
     message: string;
-    resetPreviewUrl?: string;
   }> {
     const email = emailInput.trim().toLowerCase();
     if (!email) {
       throw new AppError('Please enter your registered email address.', 400, 'VALIDATION_ERROR');
     }
 
+    const neutralResponse = {
+      message: 'If an account exists for that email, password reset instructions have been sent.',
+    };
+
     if (env.provider === 'supabase') {
-      if (env.smtp.configured || env.nodeEnv !== 'production') {
+      if (env.smtp.configured) {
         const profile = await repository.getProfileByEmail(email);
         if (!profile) {
-          return { message: 'If an account exists, a password reset email has been sent.' };
+          return neutralResponse;
         }
         const { data, error } = await getSupabaseAdmin().auth.admin.generateLink({
           type: 'recovery',
@@ -513,23 +517,28 @@ export const authService = {
           throw new AppError('Unable to generate reset link.', 500, 'RESET_EMAIL_FAILED');
         }
         await emailService.sendPasswordResetEmail(profile.email, profile.full_name, hashedToken);
-        const preview = emailService.getDevOutbox(profile.email)[0];
-        return {
-          message: 'Password reset instructions have been sent to your email.',
-          resetPreviewUrl: env.nodeEnv !== 'production' ? preview?.resetUrl : undefined,
-        };
+        return neutralResponse;
       }
 
       const { error } = await getSupabaseAnon().auth.resetPasswordForEmail(email, {
         redirectTo: `${env.clientUrl}/reset-password`,
       });
-      if (error) throw new AppError(error.message, 400, 'RESET_EMAIL_FAILED');
-      return { message: 'If an account exists, a password reset email has been sent.' };
+      if (error) {
+        if (error.status === 429 || /rate limit/i.test(error.message)) {
+          throw new AppError(
+            'Email delivery limit reached. Configure SMTP_* settings to send unlimited reset emails.',
+            429,
+            'EMAIL_RATE_LIMIT'
+          );
+        }
+        throw new AppError(error.message, 400, 'RESET_EMAIL_FAILED');
+      }
+      return neutralResponse;
     }
 
     const profile = await repository.getProfileByEmail(email);
     if (!profile) {
-      return { message: 'If an account exists, a password reset email has been sent.' };
+      return neutralResponse;
     }
 
     const { rawToken, tokenHash } = createVerificationToken();
@@ -540,12 +549,8 @@ export const authService = {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     });
     await emailService.sendPasswordResetEmail(profile.email, profile.full_name, rawToken);
-    const preview = emailService.getDevOutbox(profile.email)[0];
 
-    return {
-      message: 'Password reset instructions have been sent to your email.',
-      resetPreviewUrl: env.nodeEnv !== 'production' ? preview?.resetUrl : undefined,
-    };
+    return neutralResponse;
   },
 
   /**
