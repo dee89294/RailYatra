@@ -28,6 +28,7 @@ export const SignupPage: React.FC = () => {
   const [result, setResult] = useState<{
     message: string;
     email: string;
+    requiresVerification?: boolean;
     verificationPreviewUrl?: string;
   } | null>(null);
 
@@ -70,7 +71,11 @@ export const SignupPage: React.FC = () => {
               <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2.5">
                 <div className="flex items-center gap-2 font-extrabold text-sm">
                   <MailCheck className="w-5 h-5 text-emerald-600" />
-                  <span>Verification Email Dispatched!</span>
+                  <span>
+                    {result.requiresVerification === false
+                      ? 'Account Created & Verified!'
+                      : 'Verification Email Dispatched!'}
+                  </span>
                 </div>
                 <p className="text-xs leading-relaxed">{result.message}</p>
                 {result.verificationPreviewUrl && (

@@ -68,6 +68,88 @@ export const authService = {
     }
 
     if (env.provider === 'supabase') {
+      const existingProfile = await repository.getProfileByEmail(email);
+      if (existingProfile) {
+        if (existingProfile.email_verified) {
+          throw new AppError(
+            'An account with this email already exists. Please log in instead.',
+            409,
+            'EMAIL_ALREADY_EXISTS'
+          );
+        }
+        throw new AppError(
+          'This email is already registered but not yet verified. Go to Login and click Resend Verification Email.',
+          409,
+          'EMAIL_ALREADY_EXISTS_UNVERIFIED'
+        );
+      }
+
+      // When Nodemailer SMTP is configured (or in local development via Dev Email Outbox),
+      // generate the Supabase signup confirmation token server-side and send via emailService
+      // so arbitrary users can register without hitting Supabase's 2-emails/hour built-in limit.
+      if (env.smtp.configured || env.nodeEnv !== 'production') {
+        const { data, error } = await getSupabaseAdmin().auth.admin.generateLink({
+          type: 'signup',
+          email,
+          password: input.password,
+          options: {
+            redirectTo: `${env.clientUrl}/verify-email`,
+            data: {
+              full_name: fullName,
+              phone,
+            },
+          },
+        });
+
+        if (error) {
+          if (/already|registered|exists/i.test(error.message)) {
+            throw new AppError(
+              'An account with this email already exists. Please log in instead.',
+              409,
+              'EMAIL_ALREADY_EXISTS'
+            );
+          }
+          throw new AppError(error.message, 400, 'SUPABASE_SIGNUP_ERROR');
+        }
+
+        const hashedToken = data.properties?.hashed_token;
+        if (!hashedToken) {
+          throw new AppError(
+            'Account created, but verification token could not be generated.',
+            500,
+            'VERIFICATION_TOKEN_ERROR'
+          );
+        }
+
+        let mailResult: { deliveredVia: 'smtp' | 'dev_outbox' };
+        try {
+          mailResult = await emailService.sendVerificationEmail(email, fullName, hashedToken);
+        } catch (mailError) {
+          // Roll back auth user creation if SMTP fails so the user can retry after fixing SMTP
+          if (data.user?.id) {
+            await getSupabaseAdmin().auth.admin.deleteUser(data.user.id).catch(() => {});
+          }
+          const detail = mailError instanceof Error ? mailError.message : 'SMTP delivery failed.';
+          throw new AppError(
+            `Could not send verification email (${detail}). Check your SMTP_* settings.`,
+            502,
+            'SMTP_DELIVERY_FAILED'
+          );
+        }
+        const preview = emailService.getDevOutbox(email)[0];
+
+        return {
+          message:
+            mailResult.deliveredVia === 'smtp'
+              ? 'Registration successful! Please check your email inbox to verify your account.'
+              : 'Account created! Verify your email using the Dev Email Outbox link below (configure SMTP_* for live inbox delivery).',
+          email,
+          requiresVerification: true,
+          verificationPreviewUrl:
+            env.nodeEnv !== 'production' ? preview?.verificationUrl : undefined,
+        };
+      }
+
       const { data, error } = await getSupabaseAnon().auth.signUp({
         email,
         password: input.password,
@@ -81,17 +163,36 @@ export const authService = {
       });
 
       if (error) {
+        if (error.status === 429 || /rate limit/i.test(error.message)) {
+          throw new AppError(
+            'Email delivery rate limit reached on Supabase default mailer (2/hour). Configure SMTP_HOST, SMTP_USER, and SMTP_PASS in environment variables so unlimited users can register.',
+            429,
+            'EMAIL_RATE_LIMIT'
+          );
+        }
         throw new AppError(error.message, 400, 'SUPABASE_SIGNUP_ERROR');
       }
 
-      // Note: Supabase trigger `handle_new_user()` in 001_initial_schema.sql
-      // automatically inserts the matching row into `public.profiles`.
+      if (
+        !data.session &&
+        data.user &&
+        Array.isArray(data.user.identities) &&
+        data.user.identities.length === 0
+      ) {
+        throw new AppError(
+          'An account with this email already exists. Please log in instead.',
+          409,
+          'EMAIL_ALREADY_EXISTS'
+        );
+      }
+
+      const verifiedImmediately = Boolean(data.user?.email_confirmed_at || data.session);
       return {
-        message: data.user?.email_confirmed_at
-          ? 'Registration complete! You can now log in.'
+        message: verifiedImmediately
+          ? 'Registration complete! Your account is ready—you can now log in.'
           : 'Registration successful! Please check your email inbox to verify your account.',
         email,
-        requiresVerification: !data.user?.email_confirmed_at,
+        requiresVerification: !verifiedImmediately,
       };
     }
 
@@ -169,18 +270,29 @@ export const authService = {
         };
       }
 
-      const { data, error } = await getSupabaseAnon().auth.verifyOtp({
-        token_hash: rawToken.trim(),
-        type: 'email',
-      });
-      if (error || !data.user) {
-        throw new AppError(
-          error?.message || 'Verification link is invalid or expired.',
-          400,
-          'INVALID_VERIFICATION_TOKEN'
-        );
+      const trimmed = rawToken.trim();
+      const otpTypes: Array<'signup' | 'email' | 'magiclink'> = ['signup', 'email', 'magiclink'];
+      let verifiedUser: { id: string } | null = null;
+      let lastErrorMessage = 'Verification link is invalid or expired.';
+
+      for (const otpType of otpTypes) {
+        const { data, error } = await getSupabaseAnon().auth.verifyOtp({
+          token_hash: trimmed,
+          type: otpType,
+        });
+        if (!error && data.user) {
+          verifiedUser = data.user;
+          break;
+        }
+        if (error?.message) {
+          lastErrorMessage = error.message;
+        }
       }
-      const updated = await repository.updateProfile(data.user.id, {
+
+      if (!verifiedUser) {
+        throw new AppError(lastErrorMessage, 400, 'INVALID_VERIFICATION_TOKEN');
+      }
+      const updated = await repository.updateProfile(verifiedUser.id, {
         email_verified: true,
       });
       if (!updated) throw new AppError('Profile record not found.', 404, 'NOT_FOUND');
@@ -226,12 +338,49 @@ export const authService = {
     }
 
     if (env.provider === 'supabase') {
+      const profile = await repository.getProfileByEmail(email);
+      if (!profile) {
+        return { message: 'If an account exists for that email, a verification link has been sent.' };
+      }
+      if (profile.email_verified) {
+        return { message: 'Your email is already verified. You can log in directly.' };
+      }
+
+      if (env.smtp.configured || env.nodeEnv !== 'production') {
+        const { data, error } = await getSupabaseAdmin().auth.admin.generateLink({
+          type: 'magiclink',
+          email,
+          options: { redirectTo: `${env.clientUrl}/verify-email` },
+        });
+        if (error) throw new AppError(error.message, 400, 'RESEND_FAILED');
+        const hashedToken = data.properties?.hashed_token;
+        if (!hashedToken) {
+          throw new AppError('Unable to generate verification link.', 500, 'RESEND_FAILED');
+        }
+        await emailService.sendVerificationEmail(profile.email, profile.full_name, hashedToken);
+        const preview = emailService.getDevOutbox(profile.email)[0];
+        return {
+          message: 'A new verification email has been sent.',
+          verificationPreviewUrl:
+            env.nodeEnv !== 'production' ? preview?.verificationUrl : undefined,
+        };
+      }
+
       const { error } = await getSupabaseAnon().auth.resend({
         type: 'signup',
         email,
         options: { emailRedirectTo: `${env.clientUrl}/verify-email` },
       });
-      if (error) throw new AppError(error.message, 400, 'RESEND_FAILED');
+      if (error) {
+        if (error.status === 429 || /rate limit/i.test(error.message)) {
+          throw new AppError(
+            'Email delivery rate limit reached on Supabase default mailer. Configure SMTP_* settings for unlimited verification emails.',
+            429,
+            'EMAIL_RATE_LIMIT'
+          );
+        }
+        throw new AppError(error.message, 400, 'RESEND_FAILED');
+      }
       return { message: 'Verification email re-sent. Please check your inbox.' };
     }
 
@@ -348,6 +497,29 @@ export const authService = {
     }
 
     if (env.provider === 'supabase') {
+      if (env.smtp.configured || env.nodeEnv !== 'production') {
+        const profile = await repository.getProfileByEmail(email);
+        if (!profile) {
+          return { message: 'If an account exists, a password reset email has been sent.' };
+        }
+        const { data, error } = await getSupabaseAdmin().auth.admin.generateLink({
+          type: 'recovery',
+          email,
+          options: { redirectTo: `${env.clientUrl}/reset-password` },
+        });
+        if (error) throw new AppError(error.message, 400, 'RESET_EMAIL_FAILED');
+        const hashedToken = data.properties?.hashed_token;
+        if (!hashedToken) {
+          throw new AppError('Unable to generate reset link.', 500, 'RESET_EMAIL_FAILED');
+        }
+        await emailService.sendPasswordResetEmail(profile.email, profile.full_name, hashedToken);
+        const preview = emailService.getDevOutbox(profile.email)[0];
+        return {
+          message: 'Password reset instructions have been sent to your email.',
+          resetPreviewUrl: env.nodeEnv !== 'production' ? preview?.resetUrl : undefined,
+        };
+      }
+
       const { error } = await getSupabaseAnon().auth.resetPasswordForEmail(email, {
         redirectTo: `${env.clientUrl}/reset-password`,
       });
@@ -385,20 +557,34 @@ export const authService = {
     }
 
     if (env.provider === 'supabase') {
-      const { data: userData, error: userErr } = await getSupabaseAdmin().auth.getUser(
-        rawToken.trim()
-      );
-      if (userErr || !userData.user) {
+      const trimmed = rawToken.trim();
+      let targetUserId: string | undefined;
+
+      if (trimmed.includes('.')) {
+        const { data: userData, error: userErr } = await getSupabaseAdmin().auth.getUser(trimmed);
+        if (!userErr && userData.user) {
+          targetUserId = userData.user.id;
+        }
+      } else {
+        const { data: otpData, error: otpErr } = await getSupabaseAnon().auth.verifyOtp({
+          token_hash: trimmed,
+          type: 'recovery',
+        });
+        if (!otpErr && otpData.user) {
+          targetUserId = otpData.user.id;
+        }
+      }
+
+      if (!targetUserId) {
         throw new AppError(
           'Password reset link is invalid or expired.',
           400,
           'INVALID_RESET_TOKEN'
         );
       }
-      const { error } = await getSupabaseAdmin().auth.admin.updateUserById(
-        userData.user.id,
-        { password: newPassword }
-      );
+      const { error } = await getSupabaseAdmin().auth.admin.updateUserById(targetUserId, {
+        password: newPassword,
+      });
       if (error) throw new AppError(error.message, 400, 'PASSWORD_RESET_FAILED');
       return {
         message: 'Your password has been reset. You can now log in with your new password.',

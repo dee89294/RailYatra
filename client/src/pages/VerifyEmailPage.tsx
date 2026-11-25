@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Footer } from '../components/layout/Footer';
@@ -25,16 +25,33 @@ export const VerifyEmailPage: React.FC = () => {
     searchParams.get('token_hash') ||
     hashParams.get('access_token') ||
     '';
+  const redirectError =
+    searchParams.get('error_description') ||
+    hashParams.get('error_description') ||
+    searchParams.get('error') ||
+    hashParams.get('error') ||
+    '';
 
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Confirming your RailYatra verification token...');
+  const attemptedTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setMessage('Verification token is missing from the link.');
+      setMessage(
+        redirectError
+          ? `${redirectError}. Please go to Login and click Resend Verification Email.`
+          : 'Verification token is missing from the link.'
+      );
       return;
     }
+
+    // Prevent React StrictMode double-mount from consuming a one-time token twice
+    if (attemptedTokenRef.current === token) {
+      return;
+    }
+    attemptedTokenRef.current = token;
 
     authService
       .verifyEmail(token)
@@ -46,7 +63,7 @@ export const VerifyEmailPage: React.FC = () => {
         setStatus('error');
         setMessage(err instanceof Error ? err.message : 'Verification failed.');
       });
-  }, [token]);
+  }, [token, redirectError]);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
