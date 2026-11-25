@@ -14,9 +14,11 @@
  */
 
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync as NodeDatabaseSync } from 'node:sqlite';
 import {
   SEED_STATIONS,
   SEED_TRAINS,
@@ -24,6 +26,8 @@ import {
   createUuid,
   futureIsoDate,
 } from '../utils/seedData.js';
+
+type DatabaseSync = NodeDatabaseSync;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +41,17 @@ let dbInstance: DatabaseSync | null = null;
 export function getSqliteDb(): DatabaseSync {
   if (dbInstance) return dbInstance;
 
-  const dataDir = path.resolve(__dirname, '../../data');
+  const require = createRequire(import.meta.url);
+  // Load `node:sqlite` lazily via computed name so serverless bundlers on Vercel
+  // running in Supabase mode do not fail trying to trace built-in SQLite.
+  const sqliteModule = ['node', 'sqlite'].join(':');
+  const { DatabaseSync } = require(sqliteModule) as {
+    DatabaseSync: new (filePath: string) => DatabaseSync;
+  };
+
+  const dataDir = process.env.VERCEL
+    ? path.join(os.tmpdir(), 'railyatra-data')
+    : path.resolve(__dirname, '../../data');
   fs.mkdirSync(dataDir, { recursive: true });
 
   const dbPath = path.join(dataDir, 'railyatra.db');
@@ -45,7 +59,9 @@ export function getSqliteDb(): DatabaseSync {
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA journal_mode = WAL;');
 
-  const schemaSqlPath = path.join(__dirname, 'schema.sql');
+  const localSchemaPath = path.join(__dirname, 'schema.sql');
+  const srcSchemaPath = path.resolve(__dirname, '../../src/db/schema.sql');
+  const schemaSqlPath = fs.existsSync(localSchemaPath) ? localSchemaPath : srcSchemaPath;
   const schemaSql = fs.readFileSync(schemaSqlPath, 'utf8');
   db.exec(schemaSql);
 

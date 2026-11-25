@@ -63,10 +63,36 @@ if (requestedMode === 'supabase' && !hasSupabaseCredentials) {
   );
 }
 
+const vercelProductionUrl = (process.env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
+const vercelPreviewUrl = (process.env.VERCEL_URL || '').trim();
+const vercelBranchUrl = (process.env.VERCEL_BRANCH_URL || '').trim();
+
+const explicitClientUrls = (process.env.CLIENT_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+const defaultClientUrl = vercelProductionUrl
+  ? `https://${vercelProductionUrl}`
+  : vercelPreviewUrl
+    ? `https://${vercelPreviewUrl}`
+    : 'http://localhost:5173';
+
+const allowedOrigins = Array.from(
+  new Set([
+    ...explicitClientUrls,
+    defaultClientUrl,
+    ...(vercelProductionUrl ? [`https://${vercelProductionUrl}`] : []),
+    ...(vercelPreviewUrl ? [`https://${vercelPreviewUrl}`] : []),
+    ...(vercelBranchUrl ? [`https://${vercelBranchUrl}`] : []),
+  ])
+);
+
 export const env = {
   port: Number(process.env.PORT || 5000),
   nodeEnv: process.env.NODE_ENV || 'development',
-  clientUrl: (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, ''),
+  clientUrl: (explicitClientUrls[0] || defaultClientUrl).replace(/\/$/, ''),
+  allowedOrigins,
   jwtSecret:
     process.env.JWT_SECRET || 'railyatra-dev-secret-change-in-production-2026',
 

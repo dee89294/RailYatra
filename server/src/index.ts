@@ -39,7 +39,13 @@ export function createApp() {
   app.use(helmet());
   app.use(
     cors({
-      origin: env.clientUrl,
+      origin: (origin, callback) => {
+        if (!origin || env.allowedOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, false);
+      },
       credentials: true,
     })
   );
@@ -83,7 +89,9 @@ export function createApp() {
 }
 
 const isMainModule =
-  process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+  !process.env.VERCEL &&
+  Boolean(process.argv[1]) &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMainModule) {
   const app = createApp();

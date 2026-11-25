@@ -69,7 +69,10 @@ RailYatra is a complete, full-stack Indian Railway Reservation System built for 
 RailYatra/
 ├── README.md                           # Project documentation & setup guide
 ├── DEVELOPMENT_GUIDE.md                # Learning guide: architecture, file map & workflows
-├── package.json                        # Root scripts (install:all, dev, build, test:server, seed)
+├── package.json                        # Root scripts & Node engine config
+├── vercel.json                         # Full-stack Vercel build, serverless & SPA rewrite config
+├── api/
+│   └── index.mjs                       # Vercel Serverless Express entrypoint (`/api/*`)
 ├── scripts/
 │   └── dev.mjs                         # Launches Express backend + Vite frontend together
 ├── supabase/
@@ -334,13 +337,10 @@ npm run build
 - Backend compiles TypeScript to `server/dist/`.
 - Frontend bundles optimized assets to `client/dist/`.
 
-### Production Deployment Guide
-1. **Database & Auth:** Create a Supabase project, run `supabase/migrations/001_initial_schema.sql`, and seed the catalog via `npm run seed`.
-2. **Backend Hosting (Render / Railway / Fly.io):**
-   - Root/build command: `npm --prefix server install && npm --prefix server run build`
-   - Start command: `npm --prefix server start`
-   - Set environment variables: `NODE_ENV=production`, `DATA_PROVIDER=supabase`, `SUPABASE_*`, `SMTP_*`, `CLIENT_URL=https://your-frontend-domain.com`, and a strong `JWT_SECRET`.
-3. **Frontend Hosting (Vercel / Netlify):**
-   - Root directory: `client`
-   - Build command: `npm run build` (`dist` output directory)
-   - Set `VITE_API_BASE_URL=https://your-backend-domain.com/api` and add SPA rewrite fallback (`/* -> /index.html`) so client routes like `/pnr` and `/bookings` refresh cleanly.
+### Production Deployment Guide (Full-Stack on Vercel)
+RailYatra includes a root `vercel.json` and serverless entrypoint (`api/index.mjs`) so **both** the React frontend (`client/dist`) and Express API (`/api/*`) deploy together in one Vercel project:
+
+1. **Database & Auth:** Run `supabase/migrations/001_initial_schema.sql` in your Supabase SQL Editor and seed the catalog via `npm run seed`.
+2. **Import Repo on Vercel:** Import `RailYatra` from GitHub with the **Root Directory** left as the repository root (`.`). Vercel automatically reads `vercel.json` (`installCommand`, `buildCommand`, `outputDirectory`, and `/api/*` + SPA rewrites).
+3. **Environment Variables on Vercel:** Add the required `Config` and `Secret` variables in Project Settings -> Environment Variables (`NODE_ENV=production`, `DATA_PROVIDER=supabase`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `RAILCORE_API_URL`, `RAILCORE_API_KEY`, `CLIENT_URL`).
+4. **Alternative Split Hosting (Render/Railway + Vercel):** You may also deploy `server/` separately on Render/Railway and deploy `client/` on Vercel by setting `VITE_API_BASE_URL=https://your-backend-domain.com/api`.
